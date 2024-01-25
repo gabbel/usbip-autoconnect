@@ -1,0 +1,3 @@
+# Add your devices to this list, which should be shared over usbip.
+04d8:fd92
+046d:c52b

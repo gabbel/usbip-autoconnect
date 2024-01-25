@@ -1,0 +1,93 @@
+#!/bin/sh
+
+# Function to check if the "br-lan" interface has both IPv4 and IPv6 addresses
+check_network() {
+    # Check if 'ifconfig' reports both IPv4 and IPv6 addresses for the "br-lan" interface
+    if ifconfig br-lan | grep -qE "inet addr:|inet6 addr:" ; then
+        return 0  # "br-lan" has both IPv4 and IPv6 addresses
+    else
+        return 1  # "br-lan" does not have both IPv4 and IPv6 addresses
+    fi
+}
+
+# Maximum number of attempts before giving up
+max_attempts=30
+
+# Current attempt counter
+attempt=0
+
+# Wait for network connection on the "br-lan" interface
+while [ $attempt -lt $max_attempts ]; do
+    if check_network; then
+        echo "Network is connected on br-lan with both IPv4 and IPv6 addresses!"
+        break
+    else
+        echo "Waiting for network connection on br-lan..."
+        sleep 5  # Adjust the sleep interval based on your needs
+        attempt=$((attempt + 1))
+    fi
+done
+
+# Check if we reached the maximum number of attempts
+if [ $attempt -eq $max_attempts ]; then
+    echo "Timeout: Could not establish a network connection on br-lan with both IPv4 and IPv6 addresses."
+    exit 1  # Exit with an error code or take appropriate action
+fi
+
+# Continue with the rest of your script here
+echo "Network is ready on br-lan with both IPv4 and IPv6 addresses. Proceeding with the script..."
+# Your script logic goes here
+
+# Set the paths to the required files
+# Path to the list of allowed USB devices
+ALLOWED_DEVICES_FILE="/etc/usbip_allowed_usb_devices.txt"
+
+# Temporary file to store connected devices
+CONNECTED_DEVICES_FILE="/tmp/connected_usb_devices.txt"
+
+rm $CONNECTED_DEVICES_FILE >/dev/null 2>&1
+sleep 10
+
+# Check if the usbip command exists
+command -v usbip >/dev/null 2>&1 || { log "Error: usbip command not found."; exit 1; }
+
+# Function to check if a USB device is allowed
+is_device_allowed() {
+    local vendor_id="$1"
+    local device_id="$2"
+    grep -q "$vendor_id:$device_id" "$ALLOWED_DEVICES_FILE"
+}
+
+# Function to check if a device is already in the connected devices file
+is_device_connected() {
+    local bus_id="$1"
+    grep -q ",$bus_id$" "$CONNECTED_DEVICES_FILE"
+}
+
+# Function to add a device to the connected devices file
+add_device() {
+    local vendor_id="$1"
+    local device_id="$2"
+    local bus_id="$3"
+    echo "$vendor_id,$device_id,$bus_id" >> "$CONNECTED_DEVICES_FILE"
+    # share this device over usbip
+    usbip bind --busid "$bus_id"
+}
+
+
+for DEVPATH in /sys/bus/usb/devices/*; do
+    if [ -e "$DEVPATH/idVendor" ] && [ -e "$DEVPATH/idProduct" ]; then
+        # Extract vendor ID, device ID, and bus ID
+        vendor_id=$(cat "$DEVPATH/idVendor")
+        device_id=$(cat "$DEVPATH/idProduct")
+        bus_id=$(basename "$DEVPATH")
+
+        # Check if the device is allowed and not already connected
+        if is_device_allowed "$vendor_id" "$device_id" && ! is_device_connected "$bus_id"; then
+            add_device "$vendor_id" "$device_id" "$bus_id"
+        fi
+    fi
+done
+
+exit 0
+
