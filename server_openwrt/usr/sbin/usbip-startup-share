@@ -34,10 +34,6 @@ if [ $attempt -eq $max_attempts ]; then
     exit 1  # Exit with an error code or take appropriate action
 fi
 
-# Continue with the rest of your script here
-echo "Network is ready on br-lan with both IPv4 and IPv6 addresses. Proceeding with the script..."
-# Your script logic goes here
-
 # Set the paths to the required files
 # Path to the list of allowed USB devices
 ALLOWED_DEVICES_FILE="/etc/usbip_allowed_usb_devices.txt"
