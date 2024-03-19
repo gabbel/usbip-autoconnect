@@ -63,7 +63,6 @@ Setup the script
 # Copy it somwehere that makes sense.
 sudo cp remote_connect_usbip.sh /usr/local/bin/remote_connect_usbip.sh
 # Make Script executable
-```shell
 sudo chmod +x /usr/local/bin/remote_connect_usbip.sh
 # Run the script once not using cron to check the dependencies.
 sudo /usr/local/bin/remote_connect_usbip.sh
