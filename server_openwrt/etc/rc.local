@@ -1,4 +1,6 @@
 # Put your custom commands here that should be executed once
 # the system init finished. By default this file does nothing.
+[ -x /usr/sbin/usbip-startup-share ] || chmod 750 /usr/sbin/usbip-startup-share
+[ -x /etc/hotplug.d/usb/90-usb_usbip ] || chmod 750 /etc/hotplug.d/usb/90-usb_usbip
 /usr/sbin/usbip-startup-share
 exit 0
