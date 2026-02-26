@@ -1,0 +1,143 @@
+#!/bin/sh
+
+# Set the paths to the required files
+usbip_share_these_devices="/etc/usbip_share_these_devices.list"
+currently_shared_devices="/tmp/usbip_shared_devices.list"
+
+# Check if configuration file existst
+if [ ! -f "$usbip_share_these_devices" ]; then
+    logger "Error: $usbip_share_these_devices not found"
+    exit 1
+fi
+
+# Check if USB/IP kernel modules are loaded
+lsmod | grep -q usbip_core || { 
+    logger "Error: USB/IP kernel modules not loaded"
+    exit 1
+}
+
+# Check if the usbip command exists
+command -v usbip >/dev/null 2>&1 || { logger "Error: usbip command not found."; exit 1; }
+
+# Function to check if the "br-lan" interface has an ip (IPv4 or IPv6)
+check_network() {
+    if ifconfig br-lan | grep -qE "inet |inet6 "; then
+        return 0
+    fi
+    return 1
+}
+
+# Function to check if a USB device is allowed
+is_device_allowed() {
+    local vendor_id="$1"
+    local device_id="$2"
+    grep -q "$vendor_id:$device_id" "$usbip_share_these_devices" 2>/dev/null
+}
+
+# Function to check if a device is already in the connected devices file
+is_device_connected() {
+    local bus_id="$1"
+    grep -q ",$bus_id\$" "$currently_shared_devices" 2>/dev/null
+}
+
+# Function to add a device to the currently shared devices file
+share_device() {
+    local vendor_id="$1"
+    local device_id="$2"
+    local bus_id="$3"
+    
+    # Try to bind, then add to tracking file.
+    if usbip bind --busid "$bus_id"; then
+        echo "$vendor_id,$device_id,$bus_id" >> "$currently_shared_devices"
+    else
+        logger "Error: Failed to bind device $bus_id"
+        return 1
+    fi
+}
+
+# Function to unshare a device and remove the entry from the currently shared devices file
+unshare_device() {
+    # Iterate through connected devices file
+    while IFS=, read -r vendor_id device_id bus_id; do
+        device_path="/sys/bus/usb/devices/$bus_id"
+
+        # Check if the device path exists
+        if [ -e "$device_path" ]; then
+            # Device is still connected, do nothing
+            continue
+        else
+            # No longer share that usbdevice over usbip
+            usbip unbind --busid "$bus_id"
+            # Device is no longer present
+            echo "Device disconnected: $vendor_id $device_id $bus_id"
+            # Remove the line from the connected devices file
+            sed -i "/,$bus_id$/d" "$currently_shared_devices"
+        fi
+    done < "$currently_shared_devices"
+}
+
+# Parse hotplug events
+
+case "$ACTION" in
+    add)
+        # Check if the device has idVendor and idProduct in the same directory
+        if [ -e /sys${DEVPATH}/idVendor ] && [ -e /sys${DEVPATH}/idProduct ]; then
+            # Extract vendor ID, device ID, and bus ID
+            vendor_id=$(cat /sys${DEVPATH}/idVendor)
+            device_id=$(cat /sys${DEVPATH}/idProduct)
+            bus_id=$(ls -d /sys${DEVPATH} | xargs basename)
+
+            # Check if the device is intended to be shared and not already beeing shared.
+            if is_device_allowed "$vendor_id" "$device_id" && ! is_device_connected "$bus_id"; then
+                share_device "$vendor_id" "$device_id" "$bus_id"
+            fi
+        fi
+        ;;
+    remove)
+        # Check if a device has been disconnected.
+        unshare_device
+        ;;
+esac
+
+# Main
+
+# Script running on boot
+if [ "$1" = "1" ]; then
+    # Remove temp file if it is still there.
+    rm -f "$currently_shared_devices"
+
+    # Maximum number of attempts before giving up
+    max_attempts=6
+    # Current attempt counter
+    attempt=0
+    # Wait for network connection on the "br-lan" interface
+    while [ $attempt -lt $max_attempts ]; do
+        if check_network; then
+            break
+        else
+            sleep 10  # Adjust the sleep interval based on your needs
+            attempt=$((attempt + 1))
+        fi
+    done
+    # Check if we reached the maximum number of attempts
+    if [ $attempt -eq $max_attempts ]; then
+        exit 1  # Exit with an error code or take appropriate action
+    fi
+
+    # Share devices
+    for DEVPATH in /sys/bus/usb/devices/*; do
+        if [ -e "$DEVPATH/idVendor" ] && [ -e "$DEVPATH/idProduct" ]; then
+            # Extract vendor ID, device ID, and bus ID
+            vendor_id=$(cat "$DEVPATH/idVendor")
+            device_id=$(cat "$DEVPATH/idProduct")
+            bus_id=$(basename "$DEVPATH")
+    
+            # Check if the device is intended to be shared and not already beeing shared.
+            if is_device_allowed "$vendor_id" "$device_id" && ! is_device_connected "$bus_id"; then
+                share_device "$vendor_id" "$device_id" "$bus_id"
+            fi
+        fi
+    done
+fi
+
+exit 0

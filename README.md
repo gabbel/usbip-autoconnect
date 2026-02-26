@@ -5,6 +5,8 @@ These scripts help to automate usbip on the server and client side.
 
 Please note that this project is WIP, the server side should be functional and  complete, the client side is functional but incomplete.
 
+A copy of these notes has been added to: https://openwrt.org/docs/guide-user/services/usb.iptunnel
+
 ## What you need.
 
 A server, in my case it is an old Router with openwrt and a firmware that includes usbip.
@@ -14,19 +16,16 @@ A client, in my case a pop! Linux (ubuntu based distribution).
 ## How it works on the Server side.
 
 Within openwrt, during boot the file '/etc/rc.local' will be checked for custom commands.
-There the custom script '/usr/sbin/usbip-startup-share' is referenced.
-That custom script will wait till the network interface is up and has an ip, then the script will check for connected usb devices, verify if they are allowed to be shared '/etc/usbip_allowed_usb_devices.txt' then share these using usbip.
+And run the hotplug script '/etc/hotplug.d/usb/90-usbip' on boot.
 
-The second script '/etc/hotplug.d/usb/90-usb_usbip' checks for changes on the usb bus.
-It detects, if devices are beeing plugged, then shares them if allowed or when unplugged, unshares them.
+Otherwise during normal operation the hotplug script will run everytime when a device is beeing plugged in or beeing removed.
 
 ### Setup server side:
 
 Use scp to copy the files to openwrt.
 ```shell
-scp usbip-startup-share root@openwrt.lan:/usr/sbin/usbip-startup-share
-scp 90-usb_usbip root@openwrt.lan:/etc/hotplug.d/usb/90-usb_usbip
-scp usbip_allowed_usb_devices.txt root@openwrt.lan:/etc/usbip_allowed_usb_devices.txt
+scp 90-usbip root@openwrt.lan:/etc/hotplug.d/usb/90-usbip
+scp usbip_share_these_devices.list root@openwrt.lan:/etc/usbip_share_these_devices.list
 ```
 
 Connect to the server using ssh
@@ -37,17 +36,17 @@ ssh root@openwrt.lan
 Setup the scripts
 ```shell
 # Download and install usbip
-opkg update && opkg install usbip-server
-# Autoexecute 'usbip-startup-share' on system startup
-echo "/usr/sbin/usbip-startup-share" >> rc.local
-# make sure that all scripts are executable
-chmod +x /usr/sbin/usbip-startup-share
-chmod +x /etc/hotplug.d/usb/90-usb_usbip
+opkg update && opkg install usbip-server usbip-client
+
+# Make the script executable by adding
+# these lines to: rc.local before the exit 0
+[ -x /etc/hotplug.d/usb/90-usbip ] || chmod 750 /etc/hotplug.d/usb/90-usbip
+/etc/hotplug.d/usb/90-usbip 1
+
 
 # Run these commands, in order to keep your custom configurations when running sysupgrades of openwrt.
-echo "/usr/sbin/usbip-startup-share" >> /etc/sysupgrade.conf
-echo "/etc/hotplug.d/usb/90-usb_usbip" >> /etc/sysupgrade.conf
-echo "/etc/usbip_allowed_usb_devices.txt" >> /etc/sysupgrade.conf
+echo "/etc/hotplug.d/usb/90-usbip" >> /etc/sysupgrade.conf
+echo "/etc/usbip_share_these_devices.list" >> /etc/sysupgrade.conf
 echo "/etc/rc.local" >> /etc/sysupgrade.conf
 ```
 ## How it works on the Client side.
